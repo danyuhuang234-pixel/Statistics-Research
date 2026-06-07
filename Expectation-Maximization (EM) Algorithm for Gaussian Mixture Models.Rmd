@@ -1,0 +1,83 @@
+---
+title: "Expectation-Maximization (EM) Algorithm for Gaussian Mixture Models"
+author: "PhD Applicant"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+## Overview
+
+This document implements the Expectation-Maximization (EM) algorithm to estimate the parameters (means, variances, and mixing probabilities) of a 1D Gaussian Mixture Model (GMM). This demonstrates a foundational Frequentist approach to finite mixture models with latent variables.
+
+## Algorithm Implementation
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+set.seed(42)
+```
+
+```{r em-algorithm}
+fit_gmm_em <- function(X, K, max_iter = 100, tol = 1e-6) {
+  n <- length(X)
+  
+  # 1. Initialization
+  pi_k <- rep(1/K, K)
+  mu <- sample(X, K, replace = FALSE)
+  sigma2 <- rep(var(X), K)
+  
+  log_likelihoods <- numeric()
+  
+  for (it in 1:max_iter) {
+    # -------------------------
+    # E-step: Calculate Responsibilities (gamma)
+    # -------------------------
+    gamma <- matrix(0, nrow = n, ncol = K)
+    for (k in 1:K) {
+      gamma[, k] <- pi_k[k] * dnorm(X, mean = mu[k], sd = sqrt(sigma2[k]))
+    }
+    
+    # Compute log-likelihood
+    log_lik <- sum(log(rowSums(gamma)))
+    log_likelihoods <- c(log_likelihoods, log_lik)
+    
+    # Normalize responsibilities
+    gamma <- gamma / rowSums(gamma)
+    
+    # -------------------------
+    # M-step: Update Parameters
+    # -------------------------
+    N_k <- colSums(gamma) # Effective number of points
+    
+    pi_k <- N_k / n
+    mu <- colSums(gamma * X) / N_k
+    
+    for (k in 1:K) {
+      sigma2[k] <- sum(gamma[, k] * (X - mu[k])^2) / N_k[k]
+    }
+    
+    # -------------------------
+    # Check Convergence
+    # -------------------------
+    if (it > 1 && abs(log_likelihoods[it] - log_likelihoods[it-1]) < tol) {
+      cat(sprintf("Converged at iteration %d\n", it))
+      break
+    }
+  }
+  
+  return(list(pi = pi_k, mu = mu, sigma2 = sigma2, log_liks = log_likelihoods))
+}
+```
+
+## Example Usage
+
+```{r run-em}
+# Generate synthetic bimodal data
+data <- c(rnorm(150, mean = 0, sd = 1), rnorm(150, mean = 5, sd = 1.5))
+
+# Fit the model
+results <- fit_gmm_em(data, K = 2)
+
+cat("Estimated Means:", results$mu, "\n")
+cat("Estimated Variances:", results$sigma2, "\n")
+cat("Estimated Mixing Probs:", results$pi, "\n")
+```

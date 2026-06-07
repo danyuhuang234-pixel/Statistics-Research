@@ -1,0 +1,99 @@
+---
+title: "Gibbs Sampling for Bayesian Gaussian Mixture Models"
+author: "PhD Applicant"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+## Overview
+
+This document implements Gibbs Sampling, a Markov Chain Monte Carlo (MCMC) technique, to perform fully Bayesian inference on a Gaussian Mixture Model. It estimates the full posterior distribution of the component means, precisions, and mixing weights.
+
+## Algorithm Implementation
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+set.seed(42)
+```
+
+```{r gibbs-functions}
+# Helper function to sample from a Dirichlet distribution
+rdirichlet <- function(alpha) {
+  x <- rgamma(length(alpha), shape = alpha, rate = 1)
+  return(x / sum(x))
+}
+
+gibbs_sampling_gmm <- function(X, K, num_samples = 5000, burn_in = 1000) {
+  n <- length(X)
+  
+  # Hyperparameters for Priors
+  alpha_prior <- rep(1, K)
+  mu_0 <- 0.0
+  tau_0 <- 1.0
+  shape_0 <- 0.1
+  rate_0 <- 0.1
+  
+  # Initialization
+  pi_k <- rep(1/K, K)
+  mu <- sample(X, K, replace = FALSE)
+  tau <- rep(1, K)
+  
+  # Storage
+  samples_mu <- matrix(0, nrow = num_samples, ncol = K)
+  samples_pi <- matrix(0, nrow = num_samples, ncol = K)
+  
+  for (it in 1:(num_samples + burn_in)) {
+    # 1. Sample Latent Variables (Z)
+    probs <- matrix(0, nrow = n, ncol = K)
+    for (k in 1:K) {
+      probs[, k] <- pi_k[k] * sqrt(tau[k]) * exp(-0.5 * tau[k] * (X - mu[k])^2)
+    }
+    probs <- probs / rowSums(probs)
+    
+    # Multinomial sampling for each observation
+    Z <- apply(probs, 1, function(p) sample(1:K, size = 1, prob = p))
+    
+    # Summary statistics
+    N_k <- sapply(1:K, function(k) sum(Z == k))
+    sum_x <- sapply(1:K, function(k) sum(X[Z == k]))
+    
+    # 2. Sample Mixing Probabilities (pi)
+    pi_k <- rdirichlet(alpha_prior + N_k)
+    
+    # 3. Sample Means (mu)
+    for (k in 1:K) {
+      tau_n <- tau_0 + N_k[k] * tau[k]
+      mu_n <- (tau_0 * mu_0 + tau[k] * sum_x[k]) / tau_n
+      mu[k] <- rnorm(1, mean = mu_n, sd = 1/sqrt(tau_n))
+    }
+    
+    # 4. Sample Precisions (tau)
+    for (k in 1:K) {
+      shape_n <- shape_0 + N_k[k] / 2.0
+      rate_n <- rate_0 + 0.5 * sum((X[Z == k] - mu[k])^2)
+      tau[k] <- rgamma(1, shape = shape_n, rate = rate_n + 1e-10)
+    }
+    
+    # Store samples
+    if (it > burn_in) {
+      samples_mu[it - burn_in, ] <- mu
+      samples_pi[it - burn_in, ] <- pi_k
+    }
+  }
+  
+  return(list(mu = samples_mu, pi = samples_pi))
+}
+```
+
+## Example Usage
+
+```{r run-gibbs}
+# Generate synthetic bimodal data
+data <- c(rnorm(100, mean = -3, sd = 1), rnorm(100, mean = 4, sd = 1.5))
+
+# Run MCMC
+post_samples <- gibbs_sampling_gmm(data, K = 2, num_samples = 2000, burn_in = 500)
+
+cat("Posterior Mean of Mu:", colMeans(post_samples$mu), "\n")
+cat("Posterior Mean of Pi:", colMeans(post_samples$pi), "\n")
+```
