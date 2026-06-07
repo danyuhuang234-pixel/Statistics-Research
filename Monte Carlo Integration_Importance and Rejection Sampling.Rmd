@@ -1,0 +1,92 @@
+---
+title: "Monte Carlo Integration: Importance and Rejection Sampling"
+author: "PhD Applicant"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+## Overview
+
+This document demonstrates Monte Carlo Integration and Rejection Sampling. These methods are used to compute normalizing constants and draw samples from complex probability density functions where analytical integration is not feasible.
+
+**Target Function:**
+$f(x) = k \cdot \exp(-x^2/2)(\sin((4x)^2) + 1)$, for $x \in [0, 5]$.
+
+## Algorithm Implementation
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+set.seed(42)
+```
+
+```{r mc-functions}
+# Unnormalized target PDF
+unnorm_pdf <- function(x) {
+  val <- exp(-x^2 / 2) * (sin((4*x)^2) + 1)
+  # Return 0 if outside [0, 5]
+  ifelse(x >= 0 & x <= 5, val, 0)
+}
+
+importance_sampling <- function(N = 10000) {
+  # 1. Sample from proposal q(x) ~ Log-Normal(0,1)
+  x_samples <- rlnorm(N, meanlog = 0, sdlog = 1)
+  
+  # 2. Evaluate q(x)
+  q_x <- dlnorm(x_samples, meanlog = 0, sdlog = 1)
+  
+  # 3. Compute weights
+  f_x <- unnorm_pdf(x_samples)
+  weights <- ifelse(q_x > 0, f_x / q_x, 0)
+  
+  # 4. Estimate integral
+  integral_estimate <- mean(weights)
+  k_estimate <- 1.0 / integral_estimate
+  
+  return(c(integral = integral_estimate, k = k_estimate))
+}
+
+rejection_sampling <- function(N = 10000) {
+  # Proposal distribution g(x) ~ Exp(1)
+  g <- function(x) dexp(x, rate = 1)
+  
+  # Find optimal scaling constant C using optimization
+  # Maximize f(x)/g(x) in the interval [0, 5]
+  opt_res <- optimize(f = function(x) unnorm_pdf(x) / g(x), 
+                      interval = c(0, 5), maximum = TRUE)
+  C <- opt_res$objective
+  
+  cat(sprintf("Optimal scaling constant C: %.4f\n", C))
+  
+  samples <- numeric(N)
+  count <- 0
+  attempts <- 0
+  
+  while(count < N) {
+    attempts <- attempts + 1
+    x_prop <- rexp(1, rate = 1)
+    u <- runif(1, min = 0, max = C * g(x_prop))
+    
+    if (u <= unnorm_pdf(x_prop)) {
+      count <- count + 1
+      samples[count] <- x_prop
+    }
+  }
+  
+  cat(sprintf("Acceptance Rate: %.2f%%\n", (N / attempts) * 100))
+  return(samples)
+}
+```
+
+## Example Usage
+
+```{r run-mc}
+# Run Importance Sampling
+is_results <- importance_sampling(N = 100000)
+cat(sprintf("Importance Sampling -> Estimated Integral: %.4f\n", is_results["integral"]))
+cat(sprintf("Importance Sampling -> Normalizing Constant k: %.4f\n", is_results["k"]))
+
+# Run Rejection Sampling
+cat("\nStarting Rejection Sampling...\n")
+rej_samples <- rejection_sampling(N = 5000)
+cat("Successfully drew 5000 samples.\n")
+```
